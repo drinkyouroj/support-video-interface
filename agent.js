@@ -6,6 +6,7 @@ const remoteVideo = document.getElementById('remoteVideo');
 const toggleVideoBtn = document.getElementById('toggleVideo');
 const toggleAudioBtn = document.getElementById('toggleAudio');
 const endCallBtn = document.getElementById('endCall');
+const connectionStatus = document.getElementById('connection-status'); // Assuming this element exists in the HTML
 
 // State
 let localStream;
@@ -34,7 +35,6 @@ async function initializeMedia() {
             audio: true
         });
         
-        localVideo.srcObject = localStream;
         initializeRoom();
     } catch (error) {
         console.error('Error accessing media devices:', error);
@@ -44,31 +44,84 @@ async function initializeMedia() {
 
 // Initialize Datagram room
 function initializeRoom() {
+    if (!window.CONFIG || !window.CONFIG.DATAGRAM_APP_ID) {
+        console.error('Datagram App ID is not configured. Please check config.js');
+        connectionStatus.textContent = 'Error: App configuration missing';
+        return;
+    }
+
+    console.log('Initializing room with ID:', roomId);
+    
     // Initialize Datagram SDK
     const datagram = new Datagram({
-        appId: 'YOUR_APP_ID', // Replace with your actual Datagram App ID
+        appId: window.CONFIG.DATAGRAM_APP_ID,
         roomId: roomId,
         localVideo: localVideo,
         remoteVideo: remoteVideo,
-        onStreamAvailable: (stream) => {
-            console.log('Stream available');
+        
+        // Called when local stream is ready
+        onLocalStream: (stream) => {
+            console.log('Local stream ready');
+            localVideo.srcObject = stream;
+        },
+        
+        // Called when remote stream is available
+        onRemoteStream: (stream) => {
+            console.log('Remote stream available');
             remoteVideo.srcObject = stream;
+            remoteVideo.play().catch(e => console.error('Error playing remote video:', e));
         },
-        onStreamUnavailable: () => {
-            console.log('Stream unavailable');
-            remoteVideo.srcObject = null;
+        
+        // Called when connection is established
+        onConnect: () => {
+            console.log('Connected to room');
+            connectionStatus.textContent = 'Connected to room';
         },
+        
+        // Called when a participant joins
+        onParticipantJoined: (participantId) => {
+            console.log('Participant joined:', participantId);
+            connectionStatus.textContent = 'Customer joined the call';
+        },
+        
+        // Called when a participant leaves
+        onParticipantLeft: (participantId) => {
+            console.log('Participant left:', participantId);
+            connectionStatus.textContent = 'Customer left the call';
+            if (remoteVideo.srcObject) {
+                remoteVideo.srcObject = null;
+            }
+        },
+        
+        // Error handling
         onError: (error) => {
             console.error('Datagram error:', error);
-            alert('Error in video connection: ' + error.message);
+            connectionStatus.textContent = 'Error: ' + (error.message || 'Connection error');
+        },
+        
+        // Use ICE servers from config
+        rtcConfig: {
+            iceServers: window.CONFIG.ICE_SERVERS || []
         }
     });
 
     // Join the room
-    room = datagram.joinRoom();
-    
-    // Publish local stream
-    room.publish(localStream);
+    try {
+        room = datagram.joinRoom();
+        console.log('Room joined successfully');
+        
+        // Publish local stream after a short delay to ensure connection is established
+        setTimeout(() => {
+            if (localStream) {
+                room.publish(localStream);
+                console.log('Local stream published');
+            }
+        }, 1000);
+        
+    } catch (error) {
+        console.error('Error joining room:', error);
+        connectionStatus.textContent = 'Error joining room: ' + error.message;
+    }
 }
 
 // Set up event listeners

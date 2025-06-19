@@ -46,38 +46,88 @@ async function initializeMedia() {
 
 // Initialize Datagram room
 function initializeRoom() {
+    if (!window.CONFIG || !window.CONFIG.DATAGRAM_APP_ID) {
+        console.error('Datagram App ID is not configured. Please check config.js');
+        connectionStatus.textContent = 'Error: App configuration missing';
+        return;
+    }
+
+    console.log('Customer: Initializing room with ID:', roomId);
+    
     // Initialize Datagram SDK
     const datagram = new Datagram({
-        appId: 'YOUR_APP_ID', // Replace with your actual Datagram App ID
+        appId: window.CONFIG.DATAGRAM_APP_ID,
         roomId: roomId,
         localVideo: localVideo,
         remoteVideo: remoteVideo,
-        onStreamAvailable: (stream) => {
-            console.log('Connected to support agent');
-            connectionStatus.textContent = 'Connected to support agent';
-            remoteVideo.srcObject = stream;
+        
+        // Called when local stream is ready
+        onLocalStream: (stream) => {
+            console.log('Customer: Local stream ready');
+            localVideo.srcObject = stream;
         },
-        onStreamUnavailable: () => {
-            console.log('Support agent disconnected');
-            connectionStatus.textContent = 'Support agent has disconnected';
-            remoteVideo.srcObject = null;
-            
+        
+        // Called when remote stream is available
+        onRemoteStream: (stream) => {
+            console.log('Customer: Remote stream available');
+            remoteVideo.srcObject = stream;
+            remoteVideo.play().catch(e => console.error('Error playing remote video:', e));
+            connectionStatus.textContent = 'Connected to support agent';
+        },
+        
+        // Called when connection is established
+        onConnect: () => {
+            console.log('Customer: Connected to room');
+            connectionStatus.textContent = 'Connecting to support agent...';
+        },
+        
+        // Called when a participant joins
+        onParticipantJoined: (participantId) => {
+            console.log('Customer: Participant joined:', participantId);
+        },
+        
+        // Called when a participant leaves
+        onParticipantLeft: (participantId) => {
+            console.log('Customer: Participant left:', participantId);
+            connectionStatus.textContent = 'Support agent has left the call';
+            if (remoteVideo.srcObject) {
+                remoteVideo.srcObject = null;
+            }
             // Auto-close after delay if agent disconnects
             setTimeout(() => {
                 endCall();
             }, 3000);
         },
+        
+        // Error handling
         onError: (error) => {
-            console.error('Datagram error:', error);
-            connectionStatus.textContent = 'Error connecting to support: ' + error.message;
+            console.error('Customer: Datagram error:', error);
+            connectionStatus.textContent = 'Error: ' + (error.message || 'Connection error');
+        },
+        
+        // Use ICE servers from config
+        rtcConfig: {
+            iceServers: window.CONFIG.ICE_SERVERS || []
         }
     });
 
     // Join the room
-    room = datagram.joinRoom();
-    
-    // Publish local stream
-    room.publish(localStream);
+    try {
+        room = datagram.joinRoom();
+        console.log('Customer: Room joined successfully');
+        
+        // Publish local stream after a short delay to ensure connection is established
+        setTimeout(() => {
+            if (localStream) {
+                room.publish(localStream);
+                console.log('Customer: Local stream published');
+            }
+        }, 1000);
+        
+    } catch (error) {
+        console.error('Customer: Error joining room:', error);
+        connectionStatus.textContent = 'Error joining support session: ' + error.message;
+    }
 }
 
 // Set up event listeners
