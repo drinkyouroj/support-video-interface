@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Support Agent - Video Call</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Support Agent Dashboard</h1>
+            <div id="roomInfo">
+                <p>Room ID: <span id="roomId">Generating...</span></p>
+                <button id="copyLinkBtn" class="btn">Copy Invite Link</button>
+            </div>
+        </header>
+
+        <main>
+            <div class="video-container">
+                <div class="video-box">
+                    <video id="localVideo" autoplay playsinline muted></video>
+                    <div class="video-label">You</div>
+                </div>
+                <div class="video-box">
+                    <video id="remoteVideo" autoplay playsinline></video>
+                    <div class="video-label">Customer</div>
+                </div>
+            </div>
+
+            <div class="controls">
+                <button id="toggleVideo" class="btn">Turn Off Video</button>
+                <button id="toggleAudio" class="btn">Mute</button>
+                <button id="endCall" class="btn btn-danger">End Call</button>
+            </div>
+        </main>
+    </div>
+
+
+    <script src="https://sdk.datagram.network/datagram-sdk.js"></script>
+    <script src="agent.js"></script>
+</body>
+</html>
