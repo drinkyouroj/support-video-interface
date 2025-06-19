@@ -41,7 +41,14 @@
 
 
     <script src="config.js"></script>
-    <script src="/node_modules/@datagram-network/conference-sdk/dist/datagram-conference.js"></script>
+    <script type="module">
+        // Import the Datagram SDK from local lib directory
+        import * as DatagramSDK from './lib/datagram-conference.js';
+        
+        // Make them available globally
+        window.Client = DatagramSDK.Client;
+        window.Conference = DatagramSDK.Conference;
+    </script>
     <script src="agent.js"></script>
 </body>
 </html>
