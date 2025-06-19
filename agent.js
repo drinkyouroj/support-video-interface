@@ -46,7 +46,7 @@ async function initializeMedia() {
 function initializeRoom() {
     // Initialize Datagram SDK
     const datagram = new Datagram({
-        appId: 'org_d0htj1ukn5gs7i9cadk0:T/mGK6isA7ZxCEgvaydOpf8YEBsBStRCqW6VNCQAdFI', // Replace with your actual Datagram App ID
+        appId: 'YOUR_APP_ID', // Replace with your actual Datagram App ID
         roomId: roomId,
         localVideo: localVideo,
         remoteVideo: remoteVideo,
