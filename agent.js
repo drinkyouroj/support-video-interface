@@ -6,20 +6,26 @@ const remoteVideo = document.getElementById('remoteVideo');
 const toggleVideoBtn = document.getElementById('toggleVideo');
 const toggleAudioBtn = document.getElementById('toggleAudio');
 const endCallBtn = document.getElementById('endCall');
-const connectionStatus = document.getElementById('connection-status'); // Assuming this element exists in the HTML
+const connectionStatus = document.getElementById('connection-status');
 
 // State
 let localStream;
-let room;
+let client;
+let conference;
+let roomId = generateRoomId();
 let isVideoOn = true;
 let isAudioOn = true;
-const roomId = generateRoomId();
 
 // Initialize the page
 document.addEventListener('DOMContentLoaded', () => {
+    // Display the room ID
     roomIdElement.textContent = roomId;
-    initializeMedia();
+    
+    // Set up event listeners
     setupEventListeners();
+    
+    // Initialize media
+    initializeMedia();
 });
 
 // Generate a random room ID
@@ -35,10 +41,11 @@ async function initializeMedia() {
             audio: true
         });
         
+        localVideo.srcObject = localStream;
         initializeRoom();
     } catch (error) {
         console.error('Error accessing media devices:', error);
-        alert('Could not access camera/microphone. Please check permissions.');
+        connectionStatus.textContent = 'Could not access camera/microphone. Please check permissions.';
     }
 }
 
@@ -52,142 +59,151 @@ function initializeRoom() {
 
     console.log('Initializing room with ID:', roomId);
     
-    // Initialize Datagram SDK
-    const datagram = new Datagram({
-        appId: window.CONFIG.DATAGRAM_APP_ID,
-        roomId: roomId,
-        localVideo: localVideo,
-        remoteVideo: remoteVideo,
+    try {
+        // 1. Create client
+        client = Client.create({
+            alias: window.CONFIG.DATAGRAM_APP_ID,
+            origin: window.location.origin
+        });
         
-        // Called when local stream is ready
-        onLocalStream: (stream) => {
-            console.log('Local stream ready');
-            localVideo.srcObject = stream;
-        },
+        // 2. Create conference with options
+        const conferenceOptions = {
+            roomName: roomId,
+            localStream: localStream,
+            localVideoElement: localVideo,
+            remoteVideoElement: remoteVideo,
+            iceServers: window.CONFIG.ICE_SERVERS || [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        };
         
-        // Called when remote stream is available
-        onRemoteStream: (stream) => {
+        conference = new Conference(client, conferenceOptions);
+        
+        // Set up event listeners for conference
+        conference.on('connected', () => {
+            console.log('Connected to room');
+            connectionStatus.textContent = 'Connected to room';
+        });
+        
+        conference.on('participantJoined', (participantId) => {
+            console.log('Participant joined:', participantId);
+            connectionStatus.textContent = 'Customer joined the call';
+        });
+        
+        conference.on('participantLeft', (participantId) => {
+            console.log('Participant left:', participantId);
+            connectionStatus.textContent = 'Customer left the call';
+        });
+        
+        conference.on('remoteStreamAvailable', (stream) => {
             console.log('Remote stream available');
             remoteVideo.srcObject = stream;
             remoteVideo.play().catch(e => console.error('Error playing remote video:', e));
-        },
+        });
         
-        // Called when connection is established
-        onConnect: () => {
-            console.log('Connected to room');
-            connectionStatus.textContent = 'Connected to room';
-        },
+        conference.on('remoteStreamUnavailable', () => {
+            console.log('Remote stream unavailable');
+            remoteVideo.srcObject = null;
+        });
         
-        // Called when a participant joins
-        onParticipantJoined: (participantId) => {
-            console.log('Participant joined:', participantId);
-            connectionStatus.textContent = 'Customer joined the call';
-        },
-        
-        // Called when a participant leaves
-        onParticipantLeft: (participantId) => {
-            console.log('Participant left:', participantId);
-            connectionStatus.textContent = 'Customer left the call';
-            if (remoteVideo.srcObject) {
-                remoteVideo.srcObject = null;
-            }
-        },
-        
-        // Error handling
-        onError: (error) => {
-            console.error('Datagram error:', error);
+        conference.on('error', (error) => {
+            console.error('Conference error:', error);
             connectionStatus.textContent = 'Error: ' + (error.message || 'Connection error');
-        },
+        });
         
-        // Use ICE servers from config
-        rtcConfig: {
-            iceServers: window.CONFIG.ICE_SERVERS || []
-        }
-    });
-
-    // Join the room
-    try {
-        room = datagram.joinRoom();
-        console.log('Room joined successfully');
-        
-        // Publish local stream after a short delay to ensure connection is established
-        setTimeout(() => {
-            if (localStream) {
-                room.publish(localStream);
-                console.log('Local stream published');
-            }
-        }, 1000);
+        // Join the room
+        conference.join().then(() => {
+            console.log('Room joined successfully');
+        }).catch((error) => {
+            console.error('Error joining room:', error);
+            connectionStatus.textContent = 'Error joining room: ' + error.message;
+        });
         
     } catch (error) {
-        console.error('Error joining room:', error);
-        connectionStatus.textContent = 'Error joining room: ' + error.message;
+        console.error('Error initializing conference:', error);
+        connectionStatus.textContent = 'Error initializing conference: ' + error.message;
     }
 }
 
 // Set up event listeners
 function setupEventListeners() {
-    // Toggle video
+    // Copy invite link button
+    copyLinkBtn.addEventListener('click', copyInviteLink);
+    
+    // Toggle video button
     toggleVideoBtn.addEventListener('click', () => {
         if (localStream) {
-            const videoTrack = localStream.getVideoTracks()[0];
-            if (videoTrack) {
-                videoTrack.enabled = !videoTrack.enabled;
-                isVideoOn = videoTrack.enabled;
+            const videoTracks = localStream.getVideoTracks();
+            if (videoTracks.length > 0) {
+                isVideoOn = !isVideoOn;
+                videoTracks[0].enabled = isVideoOn;
                 toggleVideoBtn.textContent = isVideoOn ? 'Turn Off Video' : 'Turn On Video';
             }
         }
     });
-
-    // Toggle audio
+    
+    // Toggle audio button
     toggleAudioBtn.addEventListener('click', () => {
         if (localStream) {
-            const audioTrack = localStream.getAudioTracks()[0];
-            if (audioTrack) {
-                audioTrack.enabled = !audioTrack.enabled;
-                isAudioOn = audioTrack.enabled;
+            const audioTracks = localStream.getAudioTracks();
+            if (audioTracks.length > 0) {
+                isAudioOn = !isAudioOn;
+                audioTracks[0].enabled = isAudioOn;
                 toggleAudioBtn.textContent = isAudioOn ? 'Mute' : 'Unmute';
             }
         }
     });
-
-    // End call
+    
+    // End call button
     endCallBtn.addEventListener('click', endCall);
-
-    // Copy invite link
-    copyLinkBtn.addEventListener('click', copyInviteLink);
-
-    // Handle page unload
-    window.addEventListener('beforeunload', endCall);
 }
 
 // Copy invite link to clipboard
 function copyInviteLink() {
-    const inviteLink = `${window.location.origin}/customer.html?room=${encodeURIComponent(roomId)}`;
+    const inviteLink = `${window.location.origin}/customer.html?room=${roomId}`;
     
-    navigator.clipboard.writeText(inviteLink).then(() => {
-        const originalText = copyLinkBtn.textContent;
+    // Use Clipboard API if available
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(inviteLink)
+            .then(() => {
+                copyLinkBtn.textContent = 'Link Copied!';
+                setTimeout(() => {
+                    copyLinkBtn.textContent = 'Copy Invite Link';
+                }, 2000);
+            })
+            .catch(err => {
+                console.error('Could not copy link: ', err);
+            });
+    } else {
+        // Fallback for older browsers
+        const tempInput = document.createElement('input');
+        tempInput.value = inviteLink;
+        document.body.appendChild(tempInput);
+        tempInput.select();
+        document.execCommand('copy');
+        document.body.removeChild(tempInput);
+        
         copyLinkBtn.textContent = 'Link Copied!';
         setTimeout(() => {
-            copyLinkBtn.textContent = originalText;
+            copyLinkBtn.textContent = 'Copy Invite Link';
         }, 2000);
-    }).catch(err => {
-        console.error('Could not copy text: ', err);
-        alert('Could not copy link. Please copy it manually: ' + inviteLink);
-    });
+    }
 }
 
 // End the call and clean up
 function endCall() {
-    if (room) {
-        room.leave();
-        room = null;
+    // Clean up Datagram resources
+    if (conference) {
+        conference.leave();
     }
     
+    // Stop all tracks in the local stream
     if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
-        localStream = null;
     }
     
+    // Clear video elements
     if (localVideo.srcObject) {
         localVideo.srcObject = null;
     }
@@ -196,8 +212,11 @@ function endCall() {
         remoteVideo.srcObject = null;
     }
     
-    // Redirect to home after a short delay
+    // Reset UI
+    connectionStatus.textContent = 'Call ended';
+    
+    // Redirect to home or reload page after a delay
     setTimeout(() => {
-        window.location.href = window.location.origin;
-    }, 1000);
+        window.location.reload();
+    }, 2000);
 }

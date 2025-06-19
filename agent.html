@@ -33,12 +33,15 @@
                 <button id="toggleAudio" class="btn">Mute</button>
                 <button id="endCall" class="btn btn-danger">End Call</button>
             </div>
+            <div class="status-container">
+                <p id="connection-status">Waiting to connect...</p>
+            </div>
         </main>
     </div>
 
 
-    <script src="https://sdk.datagram.network/datagram-sdk.js"></script>
     <script src="config.js"></script>
+    <script src="/node_modules/@datagram-network/conference-sdk/dist/datagram-conference.js"></script>
     <script src="agent.js"></script>
 </body>
 </html>

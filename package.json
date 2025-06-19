@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@datagram-network/conference-sdk": "^1.0.2"
+  }
+}
