@@ -1,5 +1,8 @@
 {
   "dependencies": {
     "@datagram-network/conference-sdk": "^1.0.2"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.5"
   }
 }

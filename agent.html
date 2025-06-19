@@ -27,7 +27,8 @@
                     <div class="video-label">Customer</div>
                 </div>
             </div>
-
+            <div id="conference-container" class="conference-container"></div>
+            
             <div class="controls">
                 <button id="toggleVideo" class="btn">Turn Off Video</button>
                 <button id="toggleAudio" class="btn">Mute</button>
@@ -41,13 +42,11 @@
 
 
     <script src="config.js"></script>
-    <script type="module">
-        // Import the Datagram SDK from local lib directory
-        import * as DatagramSDK from './lib/datagram-conference.js';
-        
-        // Make them available globally
-        window.Client = DatagramSDK.Client;
-        window.Conference = DatagramSDK.Conference;
+    <script src="./lib/datagram-bundle.js"></script>
+    <script>
+        // Set up global references for compatibility with existing code
+        window.Client = window.DatagramSDK.Client;
+        window.Conference = window.DatagramSDK.Conference;
     </script>
     <script src="agent.js"></script>
 </body>

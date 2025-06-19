@@ -1,63 +1,44 @@
 // DOM Elements
 const connectionStatus = document.getElementById('connection-status');
-const localVideo = document.getElementById('localVideo');
-const remoteVideo = document.getElementById('remoteVideo');
 const toggleVideoBtn = document.getElementById('toggleVideo');
 const toggleAudioBtn = document.getElementById('toggleAudio');
 const endCallBtn = document.getElementById('endCall');
 
-// State
-let localStream;
+// Global variables
 let client;
 let conference;
-let isVideoOn = true;
-let isAudioOn = true;
+let roomId;
 
-// Get room ID from URL
-const urlParams = new URLSearchParams(window.location.search);
-const roomId = urlParams.get('room');
-
-// Initialize the page
+// Initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    if (!roomId) {
-        connectionStatus.textContent = 'Error: No room ID provided';
-        return;
-    }
-    
-    // Set up event listeners
     setupEventListeners();
-    
-    // Initialize media
-    initializeMedia();
+    getRoomIdFromUrl();
 });
 
-// Initialize media devices
-async function initializeMedia() {
-    try {
-        localStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: true
-        });
-        
-        localVideo.srcObject = localStream;
-        initializeRoom();
-    } catch (error) {
-        console.error('Customer: Error accessing media devices:', error);
-        connectionStatus.textContent = 'Could not access camera/microphone. Please check permissions.';
+// Get room ID from URL parameters
+function getRoomIdFromUrl() {
+    const urlParams = new URLSearchParams(window.location.search);
+    roomId = urlParams.get('room');
+    
+    if (roomId) {
+        connectionStatus.textContent = `Connecting to room: ${roomId}`;
+        initializeRoom(roomId);
+    } else {
+        connectionStatus.textContent = 'Error: No room ID provided';
     }
 }
 
 // Initialize Datagram room
-function initializeRoom() {
-    if (!window.CONFIG || !window.CONFIG.DATAGRAM_APP_ID) {
-        console.error('Datagram App ID is not configured. Please check config.js');
-        connectionStatus.textContent = 'Error: App configuration missing';
-        return;
-    }
-
-    console.log('Customer: Initializing room with ID:', roomId);
+async function initializeRoom(roomId) {
+    console.log('Joining room with ID:', roomId);
     
     try {
+        if (!window.CONFIG || !window.CONFIG.DATAGRAM_APP_ID) {
+            console.error('Datagram App ID is not configured. Please check config.js');
+            connectionStatus.textContent = 'Error: App configuration missing';
+            return;
+        }
+
         // 1. Create client
         client = Client.create({
             alias: window.CONFIG.DATAGRAM_APP_ID,
@@ -66,67 +47,73 @@ function initializeRoom() {
         
         // 2. Create conference with options
         const conferenceOptions = {
-            roomName: roomId,
-            localStream: localStream,
-            localVideoElement: localVideo,
-            remoteVideoElement: remoteVideo,
-            iceServers: window.CONFIG.ICE_SERVERS || [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' }
-            ]
+            metadata: {
+                title: "Support Call",
+                roomId: roomId
+            },
+            skipMediaSettings: false,
+            turnOnMic: true,
+            turnOnCam: true,
+            features: {
+                'speaker-selection': false
+            }
         };
         
         conference = new Conference(client, conferenceOptions);
         
-        // Set up event listeners for conference
-        conference.on('connected', () => {
-            console.log('Customer: Connected to room');
-            connectionStatus.textContent = 'Connecting to support agent...';
-        });
+        // Set up event listeners for window messages from the iframe
+        window.addEventListener('message', handleConferenceEvents);
         
-        conference.on('participantJoined', (participantId) => {
-            console.log('Customer: Participant joined:', participantId);
-            connectionStatus.textContent = 'Support agent connected';
-        });
+        // Mount the conference to the container
+        const conferenceContainer = document.getElementById('conference-container');
         
-        conference.on('participantLeft', (participantId) => {
-            console.log('Customer: Participant left:', participantId);
-            connectionStatus.textContent = 'Support agent has left the call';
-            
-            // Auto-close after delay if agent disconnects
-            setTimeout(() => {
-                endCall();
-            }, 3000);
-        });
+        // Add timeout to detect if mounting takes too long
+        let mountTimeout = setTimeout(() => {
+            console.warn('Conference mounting is taking longer than expected. Possible server connection issues.');
+            connectionStatus.textContent = 'Warning: Connection to video service is slow. Please wait...';
+        }, 5000);
         
-        conference.on('remoteStreamAvailable', (stream) => {
-            console.log('Customer: Remote stream available');
-            remoteVideo.srcObject = stream;
-            remoteVideo.play().catch(e => console.error('Error playing remote video:', e));
-            connectionStatus.textContent = 'Connected to support agent';
-        });
-        
-        conference.on('remoteStreamUnavailable', () => {
-            console.log('Customer: Remote stream unavailable');
-            remoteVideo.srcObject = null;
-        });
-        
-        conference.on('error', (error) => {
-            console.error('Customer: Conference error:', error);
-            connectionStatus.textContent = 'Error: ' + (error.message || 'Connection error');
-        });
-        
-        // Join the room
-        conference.join().then(() => {
-            console.log('Customer: Room joined successfully');
-        }).catch((error) => {
-            console.error('Customer: Error joining room:', error);
-            connectionStatus.textContent = 'Error joining support session: ' + error.message;
-        });
+        try {
+            await conference.mount(conferenceContainer);
+            clearTimeout(mountTimeout);
+        } catch (mountError) {
+            clearTimeout(mountTimeout);
+            console.error('Error mounting conference:', mountError);
+            connectionStatus.textContent = 'Error connecting to video service. Please check your network or try again later.';
+            throw mountError;
+        }
         
     } catch (error) {
-        console.error('Customer: Error initializing conference:', error);
-        connectionStatus.textContent = 'Error initializing conference: ' + error.message;
+        console.error('Error initializing conference:', error);
+        connectionStatus.textContent = 'Error: ' + (error.message || 'Connection failed. Please check your Datagram App ID or network connection.');
+    }
+}
+
+// Handle conference events from window messages
+function handleConferenceEvents(event) {
+    console.log('Received message event:', event.data);
+    
+    switch (event.data) {
+        case 'conference-ready':
+            console.log('Conference iframe is ready');
+            connectionStatus.textContent = 'Conference ready';
+            break;
+            
+        case 'call-ready':
+            console.log('Connected to room');
+            connectionStatus.textContent = 'Connected to support agent';
+            break;
+            
+        case 'call_ended':
+            console.log('Call ended');
+            connectionStatus.textContent = 'Call ended';
+            endCall();
+            break;
+            
+        case 'invalid_qr_code':
+            console.log('Invalid room code');
+            connectionStatus.textContent = 'Error: Invalid room code';
+            break;
     }
 }
 
@@ -134,26 +121,18 @@ function initializeRoom() {
 function setupEventListeners() {
     // Toggle video button
     toggleVideoBtn.addEventListener('click', () => {
-        if (localStream) {
-            const videoTracks = localStream.getVideoTracks();
-            if (videoTracks.length > 0) {
-                isVideoOn = !isVideoOn;
-                videoTracks[0].enabled = isVideoOn;
-                toggleVideoBtn.textContent = isVideoOn ? 'Turn Off Video' : 'Turn On Video';
-            }
-        }
+        // SDK handles video toggling internally
+        // This button could be used to send a message to the iframe if needed
+        const isVideoOn = toggleVideoBtn.textContent === 'Turn Off Video';
+        toggleVideoBtn.textContent = isVideoOn ? 'Turn On Video' : 'Turn Off Video';
     });
     
     // Toggle audio button
     toggleAudioBtn.addEventListener('click', () => {
-        if (localStream) {
-            const audioTracks = localStream.getAudioTracks();
-            if (audioTracks.length > 0) {
-                isAudioOn = !isAudioOn;
-                audioTracks[0].enabled = isAudioOn;
-                toggleAudioBtn.textContent = isAudioOn ? 'Mute' : 'Unmute';
-            }
-        }
+        // SDK handles audio toggling internally
+        // This button could be used to send a message to the iframe if needed
+        const isAudioOn = toggleAudioBtn.textContent === 'Mute';
+        toggleAudioBtn.textContent = isAudioOn ? 'Unmute' : 'Mute';
     });
     
     // End call button
@@ -162,30 +141,19 @@ function setupEventListeners() {
 
 // End the call and clean up
 function endCall() {
-    // Clean up Datagram resources
     if (conference) {
-        conference.leave();
+        // Dispose the conference
+        conference.dispose();
+        conference = null;
     }
     
-    // Stop all tracks in the local stream
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-    }
+    // Remove event listener
+    window.removeEventListener('message', handleConferenceEvents);
     
-    // Clear video elements
-    if (localVideo.srcObject) {
-        localVideo.srcObject = null;
-    }
-    
-    if (remoteVideo.srcObject) {
-        remoteVideo.srcObject = null;
-    }
-    
-    // Reset UI
+    // Update UI
     connectionStatus.textContent = 'Call ended';
     
-    // Redirect to home or reload page after a delay
-    setTimeout(() => {
-        window.location.href = window.location.origin;
-    }, 2000);
+    // Reset button states
+    toggleVideoBtn.textContent = 'Turn Off Video';
+    toggleAudioBtn.textContent = 'Mute';
 }

@@ -1,65 +1,42 @@
 // DOM Elements
 const roomIdElement = document.getElementById('roomId');
 const copyLinkBtn = document.getElementById('copyLinkBtn');
-const localVideo = document.getElementById('localVideo');
-const remoteVideo = document.getElementById('remoteVideo');
+const connectionStatus = document.getElementById('connection-status');
 const toggleVideoBtn = document.getElementById('toggleVideo');
 const toggleAudioBtn = document.getElementById('toggleAudio');
 const endCallBtn = document.getElementById('endCall');
-const connectionStatus = document.getElementById('connection-status');
 
-// State
-let localStream;
+// Global variables
 let client;
 let conference;
-let roomId = generateRoomId();
-let isVideoOn = true;
-let isAudioOn = true;
+let roomId;
 
-// Initialize the page
+// Initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    // Display the room ID
-    roomIdElement.textContent = roomId;
-    
-    // Set up event listeners
     setupEventListeners();
-    
-    // Initialize media
-    initializeMedia();
+    initializeRoom();
 });
 
 // Generate a random room ID
 function generateRoomId() {
-    return 'room-' + Math.random().toString(36).substring(2, 10);
-}
-
-// Initialize media devices
-async function initializeMedia() {
-    try {
-        localStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: true
-        });
-        
-        localVideo.srcObject = localStream;
-        initializeRoom();
-    } catch (error) {
-        console.error('Error accessing media devices:', error);
-        connectionStatus.textContent = 'Could not access camera/microphone. Please check permissions.';
-    }
+    const randomString = Math.random().toString(36).substring(2, 10);
+    return 'room-' + randomString;
 }
 
 // Initialize Datagram room
-function initializeRoom() {
-    if (!window.CONFIG || !window.CONFIG.DATAGRAM_APP_ID) {
-        console.error('Datagram App ID is not configured. Please check config.js');
-        connectionStatus.textContent = 'Error: App configuration missing';
-        return;
-    }
-
+async function initializeRoom() {
+    roomId = generateRoomId();
+    roomIdElement.textContent = roomId;
+    
     console.log('Initializing room with ID:', roomId);
     
     try {
+        if (!window.CONFIG || !window.CONFIG.DATAGRAM_APP_ID) {
+            console.error('Datagram App ID is not configured. Please check config.js');
+            connectionStatus.textContent = 'Error: App configuration missing';
+            return;
+        }
+
         // 1. Create client
         client = Client.create({
             alias: window.CONFIG.DATAGRAM_APP_ID,
@@ -68,61 +45,150 @@ function initializeRoom() {
         
         // 2. Create conference with options
         const conferenceOptions = {
-            roomName: roomId,
-            localStream: localStream,
-            localVideoElement: localVideo,
-            remoteVideoElement: remoteVideo,
-            iceServers: window.CONFIG.ICE_SERVERS || [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' }
-            ]
+            metadata: {
+                title: "Support Call",
+                roomId: roomId // Store room ID in metadata
+            },
+            skipMediaSettings: false,
+            turnOnMic: true,
+            turnOnCam: true,
+            features: {
+                'speaker-selection': false
+            }
         };
         
         conference = new Conference(client, conferenceOptions);
         
-        // Set up event listeners for conference
-        conference.on('connected', () => {
-            console.log('Connected to room');
-            connectionStatus.textContent = 'Connected to room';
-        });
+        // Set up event listeners for window messages from the iframe
+        window.addEventListener('message', handleConferenceEvents);
         
-        conference.on('participantJoined', (participantId) => {
-            console.log('Participant joined:', participantId);
-            connectionStatus.textContent = 'Customer joined the call';
-        });
+        // Mount the conference to the container
+        const conferenceContainer = document.getElementById('conference-container');
         
-        conference.on('participantLeft', (participantId) => {
-            console.log('Participant left:', participantId);
-            connectionStatus.textContent = 'Customer left the call';
-        });
+        // Add timeout to detect if mounting takes too long
+        window.mountingTimeoutId = setTimeout(() => {
+            console.warn('Conference mounting is taking longer than expected. Possible server connection issues.');
+            connectionStatus.textContent = 'Warning: Connection to video service is slow. Please wait...';
+            
+            // Add a longer timeout for complete failure
+            window.serviceFailureTimeoutId = setTimeout(() => {
+                console.error('Failed to connect to Datagram service after extended timeout');
+                connectionStatus.textContent = 'Error: Could not connect to video service. Please try again later or contact support.';
+                
+                // Show detailed troubleshooting information
+                const troubleshootingInfo = document.createElement('div');
+                troubleshootingInfo.className = 'troubleshooting-info';
+                troubleshootingInfo.innerHTML = `
+                    <h3>Troubleshooting Information</h3>
+                    <p>The application could not connect to the Datagram video service.</p>
+                    <ul>
+                        <li>Check your internet connection</li>
+                        <li>Verify that the Datagram service is operational</li>
+                        <li>Confirm that your Datagram App ID is valid</li>
+                    </ul>
+                    <p>Error details: 500 Internal Server Error from ${window.CONFIG.DATAGRAM_SERVER_URL || 'Datagram servers'}</p>
+                `;
+                
+                // Insert after connection status
+                connectionStatus.parentNode.insertBefore(troubleshootingInfo, connectionStatus.nextSibling);
+                
+                // Clean up
+                if (conference) {
+                    try {
+                        conference.dispose();
+                    } catch (e) {
+                        console.error('Error disposing conference:', e);
+                    }
+                    conference = null;
+                }
+                
+                window.removeEventListener('message', handleConferenceEvents);
+            }, 15000); // Wait another 15 seconds before declaring complete failure
+        }, 5000);
         
-        conference.on('remoteStreamAvailable', (stream) => {
-            console.log('Remote stream available');
-            remoteVideo.srcObject = stream;
-            remoteVideo.play().catch(e => console.error('Error playing remote video:', e));
-        });
-        
-        conference.on('remoteStreamUnavailable', () => {
-            console.log('Remote stream unavailable');
-            remoteVideo.srcObject = null;
-        });
-        
-        conference.on('error', (error) => {
-            console.error('Conference error:', error);
-            connectionStatus.textContent = 'Error: ' + (error.message || 'Connection error');
-        });
-        
-        // Join the room
-        conference.join().then(() => {
-            console.log('Room joined successfully');
-        }).catch((error) => {
-            console.error('Error joining room:', error);
-            connectionStatus.textContent = 'Error joining room: ' + error.message;
-        });
+        try {
+            await conference.mount(conferenceContainer);
+            
+            // Clear timeouts if mount succeeds
+            if (window.mountingTimeoutId) {
+                clearTimeout(window.mountingTimeoutId);
+                window.mountingTimeoutId = null;
+            }
+            if (window.serviceFailureTimeoutId) {
+                clearTimeout(window.serviceFailureTimeoutId);
+                window.serviceFailureTimeoutId = null;
+            }
+            
+            // Store room ID in session storage for customer link
+            sessionStorage.setItem('currentRoomId', roomId);
+            
+            // Enable copy link button
+            copyLinkBtn.disabled = false;
+        } catch (mountError) {
+            // Clear timeouts
+            if (window.mountingTimeoutId) {
+                clearTimeout(window.mountingTimeoutId);
+                window.mountingTimeoutId = null;
+            }
+            if (window.serviceFailureTimeoutId) {
+                clearTimeout(window.serviceFailureTimeoutId);
+                window.serviceFailureTimeoutId = null;
+            }
+            
+            console.error('Error mounting conference:', mountError);
+            connectionStatus.textContent = 'Error connecting to video service. Please check your network or try again later.';
+            throw mountError;
+        }
         
     } catch (error) {
         console.error('Error initializing conference:', error);
-        connectionStatus.textContent = 'Error initializing conference: ' + error.message;
+        connectionStatus.textContent = 'Error: ' + (error.message || 'Connection failed. Please check your Datagram App ID or network connection.');
+    }
+}
+
+// Handle conference events from window messages
+function handleConferenceEvents(event) {
+    console.log('Received message event:', event.data);
+    
+    // If we receive any message from the iframe, clear the mounting timeout
+    if (window.mountingTimeoutId) {
+        clearTimeout(window.mountingTimeoutId);
+        window.mountingTimeoutId = null;
+    }
+    
+    // Handle message data
+    if (typeof event.data === 'object' && event.data.type) {
+        // Handle object-style messages
+        switch (event.data.type) {
+            case 'PassClientScriptReady':
+                console.log('Pass client script is ready');
+                break;
+            // Add other object-type message handlers as needed
+        }
+    } else {
+        // Handle string-style messages
+        switch (event.data) {
+            case 'conference-ready':
+                console.log('Conference iframe is ready');
+                connectionStatus.textContent = 'Conference ready';
+                break;
+                
+            case 'call-ready':
+                console.log('Connected to room');
+                connectionStatus.textContent = 'Connected to room';
+                break;
+                
+            case 'call_ended':
+                console.log('Call ended');
+                connectionStatus.textContent = 'Call ended';
+                endCall();
+                break;
+                
+            case 'invalid_qr_code':
+                console.log('Invalid room code');
+                connectionStatus.textContent = 'Invalid room code';
+                break;
+        }
     }
 }
 
@@ -133,26 +199,18 @@ function setupEventListeners() {
     
     // Toggle video button
     toggleVideoBtn.addEventListener('click', () => {
-        if (localStream) {
-            const videoTracks = localStream.getVideoTracks();
-            if (videoTracks.length > 0) {
-                isVideoOn = !isVideoOn;
-                videoTracks[0].enabled = isVideoOn;
-                toggleVideoBtn.textContent = isVideoOn ? 'Turn Off Video' : 'Turn On Video';
-            }
-        }
+        // SDK handles video toggling internally
+        // This button could be used to send a message to the iframe if needed
+        const isVideoOn = toggleVideoBtn.textContent === 'Turn Off Video';
+        toggleVideoBtn.textContent = isVideoOn ? 'Turn On Video' : 'Turn Off Video';
     });
     
     // Toggle audio button
     toggleAudioBtn.addEventListener('click', () => {
-        if (localStream) {
-            const audioTracks = localStream.getAudioTracks();
-            if (audioTracks.length > 0) {
-                isAudioOn = !isAudioOn;
-                audioTracks[0].enabled = isAudioOn;
-                toggleAudioBtn.textContent = isAudioOn ? 'Mute' : 'Unmute';
-            }
-        }
+        // SDK handles audio toggling internally
+        // This button could be used to send a message to the iframe if needed
+        const isAudioOn = toggleAudioBtn.textContent === 'Mute';
+        toggleAudioBtn.textContent = isAudioOn ? 'Unmute' : 'Mute';
     });
     
     // End call button
@@ -161,62 +219,51 @@ function setupEventListeners() {
 
 // Copy invite link to clipboard
 function copyInviteLink() {
-    const inviteLink = `${window.location.origin}/customer.html?room=${roomId}`;
-    
-    // Use Clipboard API if available
-    if (navigator.clipboard) {
-        navigator.clipboard.writeText(inviteLink)
-            .then(() => {
-                copyLinkBtn.textContent = 'Link Copied!';
-                setTimeout(() => {
-                    copyLinkBtn.textContent = 'Copy Invite Link';
-                }, 2000);
-            })
-            .catch(err => {
-                console.error('Could not copy link: ', err);
-            });
-    } else {
-        // Fallback for older browsers
-        const tempInput = document.createElement('input');
-        tempInput.value = inviteLink;
-        document.body.appendChild(tempInput);
-        tempInput.select();
-        document.execCommand('copy');
-        document.body.removeChild(tempInput);
-        
-        copyLinkBtn.textContent = 'Link Copied!';
-        setTimeout(() => {
-            copyLinkBtn.textContent = 'Copy Invite Link';
-        }, 2000);
+    if (!roomId) {
+        console.error('No room ID available');
+        return;
     }
+    
+    const baseUrl = window.location.origin;
+    const customerPath = '/customer.html';
+    const inviteLink = `${baseUrl}${customerPath}?room=${roomId}`;
+    
+    navigator.clipboard.writeText(inviteLink)
+        .then(() => {
+            const originalText = copyLinkBtn.textContent;
+            copyLinkBtn.textContent = 'Copied!';
+            setTimeout(() => {
+                copyLinkBtn.textContent = originalText;
+            }, 2000);
+        })
+        .catch(err => {
+            console.error('Failed to copy link:', err);
+            alert('Failed to copy link. Please copy it manually: ' + inviteLink);
+        });
 }
 
 // End the call and clean up
 function endCall() {
-    // Clean up Datagram resources
     if (conference) {
-        conference.leave();
+        // Dispose the conference
+        conference.dispose();
+        conference = null;
     }
     
-    // Stop all tracks in the local stream
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-    }
+    // Remove event listener
+    window.removeEventListener('message', handleConferenceEvents);
     
-    // Clear video elements
-    if (localVideo.srcObject) {
-        localVideo.srcObject = null;
-    }
-    
-    if (remoteVideo.srcObject) {
-        remoteVideo.srcObject = null;
-    }
-    
-    // Reset UI
+    // Update UI
     connectionStatus.textContent = 'Call ended';
     
-    // Redirect to home or reload page after a delay
-    setTimeout(() => {
-        window.location.reload();
-    }, 2000);
+    // Generate a new room ID for next call
+    roomId = generateRoomId();
+    roomIdElement.textContent = roomId;
+    
+    // Disable copy link button until new room is ready
+    copyLinkBtn.disabled = true;
+    
+    // Reset button states
+    toggleVideoBtn.textContent = 'Turn Off Video';
+    toggleAudioBtn.textContent = 'Mute';
 }
