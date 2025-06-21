@@ -40,6 +40,7 @@ async function initializeRoom() {
         // 1. Create client
         client = Client.create({
             alias: window.CONFIG.DATAGRAM_APP_ID,
+            server: window.CONFIG.DATAGRAM_SERVER_URL,
             origin: window.location.origin
         });
         
@@ -57,6 +58,7 @@ async function initializeRoom() {
             }
         };
         
+        console.log('Conference options being passed:', conferenceOptions);
         conference = new Conference(client, conferenceOptions);
         
         // Set up event listeners for window messages from the iframe
