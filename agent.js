@@ -52,13 +52,9 @@ async function initializeRoom() {
             },
             skipMediaSettings: false,
             turnOnMic: true,
-            turnOnCam: true,
-            features: {
-                'speaker-selection': false
-            }
+            turnOnCam: true
         };
         
-        console.log('Conference options being passed:', conferenceOptions);
         conference = new Conference(client, conferenceOptions);
         
         // Set up event listeners for window messages from the iframe

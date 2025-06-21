@@ -54,10 +54,7 @@ async function initializeRoom(roomId) {
             },
             skipMediaSettings: false,
             turnOnMic: true,
-            turnOnCam: true,
-            features: {
-                'speaker-selection': false
-            }
+            turnOnCam: true
         };
         
         conference = new Conference(client, conferenceOptions);
@@ -94,27 +91,45 @@ async function initializeRoom(roomId) {
 function handleConferenceEvents(event) {
     console.log('Received message event:', event.data);
     
-    switch (event.data) {
-        case 'conference-ready':
-            console.log('Conference iframe is ready');
-            connectionStatus.textContent = 'Conference ready';
-            break;
-            
-        case 'call-ready':
-            console.log('Connected to room');
-            connectionStatus.textContent = 'Connected to support agent';
-            break;
-            
-        case 'call_ended':
-            console.log('Call ended');
-            connectionStatus.textContent = 'Call ended';
-            endCall();
-            break;
-            
-        case 'invalid_qr_code':
-            console.log('Invalid room code');
-            connectionStatus.textContent = 'Error: Invalid room code';
-            break;
+    // If we receive any message from the iframe, clear the mounting timeout
+    if (window.mountTimeout) {
+        clearTimeout(window.mountTimeout);
+        window.mountTimeout = null;
+    }
+    
+    // Handle message data
+    if (typeof event.data === 'object' && event.data.type) {
+        // Handle object-style messages
+        switch (event.data.type) {
+            case 'PassClientScriptReady':
+                console.log('Pass client script is ready');
+                break;
+            // Add other object-type message handlers as needed
+        }
+    } else {
+        // Handle string-style messages
+        switch (event.data) {
+            case 'conference-ready':
+                console.log('Conference iframe is ready');
+                connectionStatus.textContent = 'Conference ready';
+                break;
+                
+            case 'call-ready':
+                console.log('Connected to room');
+                connectionStatus.textContent = 'Connected to support agent';
+                break;
+                
+            case 'call_ended':
+                console.log('Call ended');
+                connectionStatus.textContent = 'Call ended';
+                endCall();
+                break;
+                
+            case 'invalid_qr_code':
+                console.log('Invalid room code');
+                connectionStatus.textContent = 'Error: Invalid room code';
+                break;
+        }
     }
 }
 
